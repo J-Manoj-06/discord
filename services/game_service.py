@@ -1,4 +1,15 @@
-"""Game Service: Complete Mafia game flow with phases and button-based actions."""
+"""Game Service: Complete Mafia game flow with phases and button-based actions.
+
+Handles:
+- Game session state management
+- Player and role assignment
+- Phase transitions (waiting → night → day → voting → ended)
+- Night action resolution (kill/heal/investigate)
+- Voting phase and elimination
+- Win condition checks
+- Thread creation and closure
+- Game over messaging
+"""
 
 import asyncio
 import random
@@ -8,169 +19,10 @@ from typing import Dict, List, Optional, Tuple
 import discord
 from discord.ext import commands
 
-
-class NightTargetSelect(discord.ui.Select):
-    """Select menu used after clicking a night action button."""
-
-    def __init__(self, game_service: "GameService", guild_id: int, actor_id: int, action_type: str):
-        self.game_service = game_service
-        self.guild_id = guild_id
-        self.actor_id = actor_id
-        self.action_type = action_type
-
-        session = self.game_service.get_session(guild_id)
-        options: List[discord.SelectOption] = []
-        for player_id in session["alive_players"]:
-            options.append(discord.SelectOption(label=f"Player {player_id}", value=str(player_id)))
-
-        super().__init__(
-            placeholder="Select a target",
-            min_values=1,
-            max_values=1,
-            options=options[:25],
-        )
-
-    async def callback(self, interaction: discord.Interaction):
-        session = self.game_service.get_session(self.guild_id)
-        if session["phase"] != "night":
-            await interaction.response.send_message("❌ Night phase already ended.", ephemeral=True)
-            return
-
-        if interaction.user.id != self.actor_id:
-            await interaction.response.send_message("❌ This action menu is not for you.", ephemeral=True)
-            return
-
-        if interaction.user.id not in session["alive_players"]:
-            await interaction.response.send_message("❌ Dead players cannot act.", ephemeral=True)
-            return
-
-        if self.action_type in session["night_actions"]:
-            await interaction.response.send_message("❌ This action has already been submitted.", ephemeral=True)
-            return
-
-        target_id = int(self.values[0])
-        session["night_actions"][self.action_type] = target_id
-
-        if self.action_type == "investigate":
-            target_role = session["roles"].get(target_id, "unknown")
-            await interaction.response.send_message(
-                f"🔍 Investigation result: <@{target_id}> is **{target_role}**.",
-                ephemeral=True,
-            )
-            return
-
-        await interaction.response.send_message(
-            f"✅ {self.action_type.title()} target saved: <@{target_id}>.",
-            ephemeral=True,
-        )
-
-
-class NightTargetView(discord.ui.View):
-    """Container view for night target selection."""
-
-    def __init__(self, game_service: "GameService", guild_id: int, actor_id: int, action_type: str):
-        super().__init__(timeout=45)
-        self.add_item(NightTargetSelect(game_service, guild_id, actor_id, action_type))
-
-
-class NightActionButton(discord.ui.Button):
-    """Role-specific button for night action."""
-
-    def __init__(
-        self,
-        game_service: "GameService",
-        guild_id: int,
-        action_type: str,
-        required_role: str,
-        label: str,
-        emoji: str,
-    ):
-        super().__init__(label=label, emoji=emoji, style=discord.ButtonStyle.primary)
-        self.game_service = game_service
-        self.guild_id = guild_id
-        self.action_type = action_type
-        self.required_role = required_role
-
-    async def callback(self, interaction: discord.Interaction):
-        session = self.game_service.get_session(self.guild_id)
-
-        if session["phase"] != "night":
-            await interaction.response.send_message("❌ Night phase is not active.", ephemeral=True)
-            return
-
-        user_id = interaction.user.id
-        if user_id not in session["alive_players"]:
-            await interaction.response.send_message("❌ Dead players cannot act.", ephemeral=True)
-            return
-
-        role = session["roles"].get(user_id)
-        if role != self.required_role:
-            await interaction.response.send_message("❌ You cannot use this action.", ephemeral=True)
-            return
-
-        if self.action_type in session["night_actions"]:
-            await interaction.response.send_message("❌ This action was already submitted.", ephemeral=True)
-            return
-
-        view = NightTargetView(self.game_service, self.guild_id, user_id, self.action_type)
-        await interaction.response.send_message("Select your target:", view=view, ephemeral=True)
-
-
-class NightActionsView(discord.ui.View):
-    """Main night action button panel."""
-
-    def __init__(self, game_service: "GameService", guild_id: int):
-        super().__init__(timeout=60)
-        self.add_item(NightActionButton(game_service, guild_id, "kill", "godfather", "Kill", "🔪"))
-        self.add_item(NightActionButton(game_service, guild_id, "heal", "doctor", "Heal", "💉"))
-        self.add_item(NightActionButton(game_service, guild_id, "investigate", "detective", "Investigate", "🔍"))
-
-
-class VoteButton(discord.ui.Button):
-    """Vote button for a single target player."""
-
-    def __init__(self, game_service: "GameService", guild_id: int, target_id: int):
-        super().__init__(
-            label=f"Vote @{target_id}",
-            style=discord.ButtonStyle.secondary,
-            custom_id=f"vote_{guild_id}_{target_id}",
-        )
-        self.game_service = game_service
-        self.guild_id = guild_id
-        self.target_id = target_id
-
-    async def callback(self, interaction: discord.Interaction):
-        session = self.game_service.get_session(self.guild_id)
-
-        if session["phase"] != "voting":
-            await interaction.response.send_message("❌ Voting phase is not active.", ephemeral=True)
-            return
-
-        voter_id = interaction.user.id
-        if voter_id not in session["alive_players"]:
-            await interaction.response.send_message("❌ Dead players cannot vote.", ephemeral=True)
-            return
-
-        if voter_id in session["votes"]:
-            await interaction.response.send_message("❌ You already voted.", ephemeral=True)
-            return
-
-        if self.target_id not in session["alive_players"]:
-            await interaction.response.send_message("❌ That player is no longer alive.", ephemeral=True)
-            return
-
-        session["votes"][voter_id] = self.target_id
-        await interaction.response.send_message(f"✅ Vote submitted for <@{self.target_id}>.", ephemeral=True)
-
-
-class VotingView(discord.ui.View):
-    """Voting panel with one button per alive player."""
-
-    def __init__(self, game_service: "GameService", guild_id: int):
-        super().__init__(timeout=60)
-        session = game_service.get_session(guild_id)
-        for target_id in session["alive_players"][:25]:
-            self.add_item(VoteButton(game_service, guild_id, target_id))
+# Import UI components
+from bot.ui.action_buttons import NightActionsView
+from bot.ui.voting_buttons import VotingView
+from bot.ui.player_select import get_player_display_name
 
 
 class GameService:
@@ -303,6 +155,14 @@ class GameService:
         return True, "Thread created.", thread
 
     async def start_game_flow(self, ctx: commands.Context) -> Tuple[bool, str]:
+        """Start complete game flow: thread creation, role assignment, DM notifications.
+        
+        Args:
+            ctx: Discord context with user, guild, and channel info
+            
+        Returns:
+            Tuple of (success: bool, message: str)
+        """
         guild = ctx.guild
         if guild is None:
             return False, "This command can only be used in a server."
@@ -329,23 +189,35 @@ class GameService:
 
         failed_dms = await self.send_roles_dm(guild, roles)
 
-        player_mentions = "\n".join(f"<@{uid}>" for uid in session["players"])
+        # Format player list with display names
+        player_names = [get_player_display_name(guild, uid) for uid in session["players"]]
+        player_list = "\n".join(player_names)
+
         await thread.send(
-            "🎮 Mafia Game Started!\n\n"
-            f"Players:\n{player_mentions}\n\n"
+            "🎮 **Mafia Game Started!**\n\n"
+            f"**Players:**\n{player_list}\n\n"
             "The game begins with **Night Phase**.\n\n"
-            "Check your DMs for your role."
+            "Check your **DMs** for your role."
         )
 
         if failed_dms:
-            failed_mentions = " ".join(f"<@{uid}>" for uid in failed_dms)
-            await thread.send(f"⚠️ Could not DM roles to: {failed_mentions}")
+            failed_names = [get_player_display_name(guild, uid) for uid in failed_dms]
+            failed_list = ", ".join(failed_names)
+            await thread.send(f"⚠️ Could not DM roles to: {failed_list}")
 
         task = asyncio.create_task(self._run_game_loop(guild, thread))
         self.game_tasks[guild_id] = task
         return True, "Game has started! Roles have been sent via DM 🌙"
 
     async def _run_game_loop(self, guild: discord.Guild, thread: discord.Thread):
+        """Main game loop: night → day → voting → repeat.
+        
+        Continues until win condition is met.
+        
+        Args:
+            guild: Discord guild
+            thread: Game thread for messages
+        """
         guild_id = guild.id
         try:
             while True:
@@ -355,7 +227,7 @@ class GameService:
 
                 await self.run_day_phase(guild_id, thread)
 
-                game_over = await self.run_voting_phase(guild_id, thread)
+                game_over = await self.run_voting_phase(guild_id, guild, thread)
                 if game_over:
                     break
 
@@ -369,22 +241,45 @@ class GameService:
             self.game_tasks.pop(guild_id, None)
 
     async def run_night_phase(self, guild: discord.Guild, thread: discord.Thread) -> bool:
+        """Run night phase: show action buttons and wait for submissions.
+        
+        Args:
+            guild: Discord guild
+            thread: Game thread for messages
+            
+        Returns:
+            True if game ends, False otherwise
+        """
         guild_id = guild.id
         session = self._get_or_create_session(guild_id)
         session["phase"] = "night"
         session["night_actions"] = {}
 
         await thread.send(
-            "🌙 Night Phase has begun.\n"
-            "Role actions: 🔪 Kill (Godfather), 💉 Heal (Doctor), 🔍 Investigate (Detective).",
-            view=NightActionsView(self, guild_id),
+            "🌙 **Night Phase** has begun.\n\n"
+            "Available actions:\n"
+            "🔪 Kill (Godfather)\n"
+            "💉 Heal (Doctor)\n"
+            "🔍 Investigate (Detective)\n\n"
+            "_Click a button below to perform your action._",
+            view=NightActionsView(self, guild, guild_id),
         )
 
         await asyncio.sleep(self.NIGHT_DURATION_SECONDS)
-        await self.resolve_night(guild_id, thread)
-        return await self.check_win_conditions(guild_id, thread)
+        await self.resolve_night(guild_id, guild, thread)
+        return await self.check_win_conditions(guild_id, guild, thread)
 
-    async def resolve_night(self, guild_id: int, thread: discord.Thread):
+    async def resolve_night(self, guild_id: int, guild: discord.Guild, thread: discord.Thread):
+        """Resolve night phase: process kill/heal actions.
+        
+        Kill target dies unless healed.
+        Heal target survives kill (if healed and killed same round).
+        
+        Args:
+            guild_id: Guild ID
+            guild: Discord guild for member info
+            thread: Game thread for messages
+        """
         session = self._get_or_create_session(guild_id)
         night_actions = session["night_actions"]
 
@@ -392,52 +287,121 @@ class GameService:
         heal_target = night_actions.get("heal")
 
         killed_user_id: Optional[int] = None
+        
+        # Kill succeeds only if target is not healed
         if kill_target is not None and kill_target != heal_target:
             if kill_target in session["alive_players"]:
                 session["alive_players"].remove(kill_target)
                 killed_user_id = kill_target
 
         if killed_user_id is None:
-            await thread.send("🌙 Night Result\n\nNobody died during the night.")
+            await thread.send("🌙 **Night Result**\n\nNobody died during the night.")
         else:
-            await thread.send(f"🌙 Night Result\n\n<@{killed_user_id}> was killed during the night.")
+            victim_name = get_player_display_name(guild, killed_user_id)
+            victim_role = session["roles"].get(killed_user_id, "unknown")
+            await thread.send(
+                f"🌙 **Night Result**\n\n"
+                f"**{victim_name}** was killed.\n"
+                f"Role: *{victim_role.title()}*"
+            )
 
     async def run_day_phase(self, guild_id: int, thread: discord.Thread):
+        """Run day phase: discussion period before voting.
+        
+        Args:
+            guild_id: Guild ID
+            thread: Game thread for messages
+        """
         session = self._get_or_create_session(guild_id)
         session["phase"] = "day"
-        await thread.send("☀️ Day Phase has begun.\nDiscuss who might be the mafia.")
+        
+        await thread.send(
+            f"☀️ **Day Phase** - Day {session['day_count']}\n\n"
+            "_Everyone can discuss who might be mafia. "
+            "Voting will start soon._"
+        )
         await asyncio.sleep(self.DAY_DURATION_SECONDS)
 
-    async def run_voting_phase(self, guild_id: int, thread: discord.Thread) -> bool:
+    async def run_voting_phase(self, guild_id: int, guild: discord.Guild, thread: discord.Thread) -> bool:
+        """Run voting phase: show vote buttons and process votes.
+        
+        Args:
+            guild_id: Guild ID
+            guild: Discord guild for member info
+            thread: Game thread for messages
+            
+        Returns:
+            True if game ends, False otherwise
+        """
         session = self._get_or_create_session(guild_id)
         session["phase"] = "voting"
         session["votes"] = {}
 
-        await thread.send("🗳️ Voting Phase has started. Choose who to eliminate.", view=VotingView(self, guild_id))
+        await thread.send(
+            "🗳️ **Voting Phase** has started.\n\n"
+            "_Click a button below to vote for elimination._",
+            view=VotingView(self, guild, guild_id),
+        )
 
         await asyncio.sleep(self.VOTING_DURATION_SECONDS)
-        await self.resolve_votes(guild_id, thread)
-        return await self.check_win_conditions(guild_id, thread)
+        await self.resolve_votes(guild_id, guild, thread)
+        return await self.check_win_conditions(guild_id, guild, thread)
 
-    async def resolve_votes(self, guild_id: int, thread: discord.Thread):
+    async def resolve_votes(self, guild_id: int, guild: discord.Guild, thread: discord.Thread):
+        """Resolve voting: determine eliminated player by vote count.
+        
+        Ties are broken by lowest user ID.
+        
+        Args:
+            guild_id: Guild ID
+            guild: Discord guild for member info
+            thread: Game thread for messages
+        """
         session = self._get_or_create_session(guild_id)
         votes: Dict[int, int] = session["votes"]
 
         if not votes:
-            await thread.send("🗳️ Voting Result\n\nNo votes were cast. Nobody is eliminated.")
+            await thread.send("🗳️ **Voting Result**\n\nNo votes were cast. Nobody is eliminated.")
             return
 
         counts = Counter(votes.values())
         max_votes = max(counts.values())
         top_targets = [target_id for target_id, count in counts.items() if count == max_votes]
 
+        # Break ties using lowest ID
         eliminated_id = sorted(top_targets)[0]
+        
         if eliminated_id in session["alive_players"]:
             session["alive_players"].remove(eliminated_id)
 
-        await thread.send(f"🗳️ Voting Result\n\n<@{eliminated_id}> has been eliminated.")
+        eliminated_name = get_player_display_name(guild, eliminated_id)
+        eliminated_role = session["roles"].get(eliminated_id, "unknown")
+        vote_count = counts[eliminated_id]
+        
+        await thread.send(
+            f"🗳️ **Voting Result**\n\n"
+            f"**{eliminated_name}** has been eliminated.\n"
+            f"Votes: {vote_count}\n"
+            f"Role: *{eliminated_role.title()}*"
+        )
 
-    async def check_win_conditions(self, guild_id: int, thread: discord.Thread) -> bool:
+    async def check_win_conditions(self, guild_id: int, guild: discord.Guild, thread: discord.Thread) -> bool:
+        """Check if game has ended and determine winner.
+        
+        Win conditions:
+        - Villagers win if Godfather (mafia) is dead
+        - Mafia wins if mafia_count >= villager_count
+        
+        Shows survivors and game results before closing thread.
+        
+        Args:
+            guild_id: Guild ID
+            guild: Discord guild for member info
+            thread: Game thread for messages
+            
+        Returns:
+            True if game ended, False otherwise
+        """
         session = self._get_or_create_session(guild_id)
 
         mafia_alive = 0
@@ -449,14 +413,40 @@ class GameService:
             else:
                 villager_alive += 1
 
+        winner: Optional[str] = None
+
+        # Villagers win if Godfather is dead
         if mafia_alive == 0:
             session["phase"] = "ended"
-            await thread.send("🏆 Game Over!\n\nWinner: Villagers")
-            return True
+            winner = "Villagers"
 
-        if mafia_alive >= villager_alive:
+        # Mafia wins if mafia >= villagers
+        elif mafia_alive >= villager_alive:
             session["phase"] = "ended"
-            await thread.send("🏆 Game Over!\n\nWinner: Mafia")
-            return True
+            winner = "Mafia"
 
-        return False
+        if winner is None:
+            return False
+
+        # Build survivor list
+        survivor_names = [get_player_display_name(guild, pid) for pid in session["alive_players"]]
+        survivor_text = "\n".join(survivor_names) if survivor_names else "_None_"
+
+        # Send game over message
+        await thread.send(
+            f"🏆 **GAME OVER**\n\n"
+            f"**Winner: {winner}**\n\n"
+            f"Survivors:\n{survivor_text}"
+        )
+
+        # Archive and lock thread
+        try:
+            await thread.edit(archived=True, locked=True)
+        except discord.HTTPException:
+            # If archiving fails, try locking only
+            try:
+                await thread.edit(locked=True)
+            except discord.HTTPException:
+                pass
+
+        return True
