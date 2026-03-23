@@ -6,6 +6,7 @@ from collections import Counter
 from typing import Dict, List, Optional, Tuple
 
 import discord
+from discord.ext import commands
 
 
 class NightTargetSelect(discord.ui.Select):
@@ -274,18 +275,34 @@ class GameService:
         session = self._get_or_create_session(guild_id)
         day_count = session.get("day_count", 1)
 
+        # If command is used inside an existing thread, reuse it.
+        if isinstance(channel, discord.Thread):
+            session["thread_id"] = channel.id
+            return True, "Using current thread.", channel
+
         if not isinstance(channel, discord.TextChannel):
             return False, "Start command must be used in a text channel.", None
 
-        thread = await channel.create_thread(
-            name=f"Mafia Game - Day {day_count}",
-            type=discord.ChannelType.public_thread,
-            auto_archive_duration=60,
-        )
+        try:
+            # In regular text channels, public threads must be started from a message.
+            starter_message = await channel.send("🧵 Creating game thread...")
+            thread = await starter_message.create_thread(
+                name=f"Mafia Game - Day {day_count}",
+                auto_archive_duration=60,
+            )
+        except discord.Forbidden:
+            return (
+                False,
+                "I need permissions: Send Messages, Create Public Threads, and Send Messages in Threads.",
+                None,
+            )
+        except discord.HTTPException as exc:
+            return False, f"Failed to create thread: {exc}", None
+
         session["thread_id"] = thread.id
         return True, "Thread created.", thread
 
-    async def start_game_flow(self, ctx: discord.Context) -> Tuple[bool, str]:
+    async def start_game_flow(self, ctx: commands.Context) -> Tuple[bool, str]:
         guild = ctx.guild
         if guild is None:
             return False, "This command can only be used in a server."
