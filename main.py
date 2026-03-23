@@ -25,6 +25,7 @@ from database.repositories.wallet_repository import WalletRepository
 from database.repositories.economy_log_repository import EconomyLogRepository
 from database.repositories.profile_repository import ProfileRepository
 from database.repositories.inventory_repository import InventoryRepository
+from database.repositories.mafia_game_stats_repository import MafiaGameStatsRepository
 
 # Import services
 from services.economy_service import EconomyService
@@ -32,6 +33,7 @@ from services.profile_service import ProfileService
 from services.vote_effect_service import VoteEffectService
 from services.shop_service import ShopService
 from services.game_service import GameService
+from services.mafia_profile_service import MafiaProfileService
 
 # Import command cogs
 from bot.commands import (
@@ -40,7 +42,9 @@ from bot.commands import (
     shop_commands,
     vote_effect_commands,
     join,
+    leave,
     start,
+    profile,
 )
 
 logger = logging.getLogger(__name__)
@@ -57,11 +61,13 @@ class MafiaBot(commands.Bot):
         self.economy_log_repo: Optional[EconomyLogRepository] = None
         self.profile_repo: Optional[ProfileRepository] = None
         self.inventory_repo: Optional[InventoryRepository] = None
+        self.mafia_game_stats_repo: Optional[MafiaGameStatsRepository] = None
         self.economy_service: Optional[EconomyService] = None
         self.profile_service: Optional[ProfileService] = None
         self.vote_effect_service: Optional[VoteEffectService] = None
         self.shop_service: Optional[ShopService] = None
         self.game_service: Optional[GameService] = None
+        self.mafia_profile_service: Optional[MafiaProfileService] = None
 
     async def setup_services(self):
         """Initialize database and services."""
@@ -79,18 +85,21 @@ class MafiaBot(commands.Bot):
         self.economy_log_repo = EconomyLogRepository(self.mongo_client)
         self.profile_repo = ProfileRepository(self.mongo_client)
         self.inventory_repo = InventoryRepository(self.mongo_client)
+        self.mafia_game_stats_repo = MafiaGameStatsRepository(self.mongo_client)
 
         # Create indexes
         await self.wallet_repo.create_indexes()
         await self.profile_repo.create_indexes()
         await self.inventory_repo.create_indexes()
+        await self.mafia_game_stats_repo.initialize()
 
         # Initialize services
         self.economy_service = EconomyService(self.wallet_repo, self.economy_log_repo)
         self.profile_service = ProfileService(self.profile_repo)
         self.vote_effect_service = VoteEffectService(self.inventory_repo)
         self.shop_service = ShopService(self.inventory_repo)
-        self.game_service = GameService()
+        self.mafia_profile_service = MafiaProfileService(self.mafia_game_stats_repo)
+        self.game_service = GameService(self.mafia_profile_service)
 
         logger.info("Services initialized successfully")
 
@@ -128,8 +137,15 @@ class MafiaBot(commands.Bot):
         await join.setup(self, self.game_service)
         logger.info("✓ Join command loaded")
 
+        await leave.setup(self, self.game_service)
+        logger.info("✓ Leave command loaded")
+
         await start.setup(self, self.game_service)
         logger.info("✓ Start command loaded")
+
+        # Load Mafia game profile command
+        await profile.setup(self, self.mafia_profile_service)
+        logger.info("✓ Mafia profile command loaded")
 
     async def on_ready(self):
         """Called when the bot is ready."""
