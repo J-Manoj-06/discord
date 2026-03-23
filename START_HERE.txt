@@ -1,0 +1,149 @@
+═══════════════════════════════════════════════════════════════════════════════
+                    IMMEDIATE NEXT STEPS (START HERE)
+═══════════════════════════════════════════════════════════════════════════════
+
+You asked: "I cannot see the token"
+
+SOLUTION: Follow this exact sequence
+
+───────────────────────────────────────────────────────────────────────────────
+STEP 1: Get Discord Token
+───────────────────────────────────────────────────────────────────────────────
+
+1. Open: https://discord.com/developers/applications
+
+2. Click your app "mafia game bot"
+
+3. In LEFT SIDEBAR, click "Bot"
+
+4. SCROLL DOWN (the token might not be visible at first)
+
+5. Find section labeled "TOKEN" with a [Copy] button
+
+6. Click [Copy]
+   → Token is now in your clipboard (even though you can't see it!)
+
+7. If there's no Copy button:
+   • Look for "Add Bot" button and click it
+   • Then the Copy button should appear
+
+───────────────────────────────────────────────────────────────────────────────
+STEP 2: Get MongoDB Connection String
+───────────────────────────────────────────────────────────────────────────────
+
+1. Open: https://www.mongodb.com/cloud/atlas
+
+2. Find your cluster (or create free one if needed)
+
+3. Click "Connect"
+
+4. Choose "Python 3.12" option
+
+5. Copy the connection string shown
+
+───────────────────────────────────────────────────────────────────────────────
+STEP 3: Create .env File
+───────────────────────────────────────────────────────────────────────────────
+
+Option A - AUTOMATIC (Easiest):
+
+    bash setup_env.sh
+
+    Then answer the 2 prompts:
+    • Paste Discord token
+    • Paste MongoDB URI
+
+
+Option B - MANUAL:
+
+    nano .env
+
+    Paste these 6 lines (replace with YOUR credentials):
+    
+    DISCORD_TOKEN=your_token_here
+    MONGODB_URI=your_mongodb_uri_here
+    MONGO_DB_NAME=discord_bot
+    COMMAND_PREFIX=!
+    DAILY_REWARD_COINS=500
+    DAILY_COOLDOWN_HOURS=24
+
+    Save: Ctrl+X, Y, Enter
+
+───────────────────────────────────────────────────────────────────────────────
+STEP 4: Launch the Bot
+───────────────────────────────────────────────────────────────────────────────
+
+    source .venv/bin/activate
+    python main.py
+
+You should see: "Bot is ready!"
+
+───────────────────────────────────────────────────────────────────────────────
+STEP 5: Test in Discord
+───────────────────────────────────────────────────────────────────────────────
+
+Type in your Discord server: !balance
+
+If it works → You're done! ✅
+
+═══════════════════════════════════════════════════════════════════════════════
+
+❓ STILL CAN'T FIND TOKEN?
+
+Look at Discord Developer Portal → Your App → Bot tab
+
+You should see this layout:
+
+                    🔴 Discord Bot Configuration
+
+    Icon:           [Red bot icon image]
+    
+    Banner:         [Gray drag/upload area]
+    
+    Username:       mafia game bot              #5754
+    
+    ───────────────────────────────────────────────────
+    
+    TOKEN
+    ┌─────────────────────────────────────────────────┐
+    │ For security purposes, tokens can only be       │
+    │ viewed once, when created. If you forgot or     │
+    │ lost access to your token, please               │
+    │ regenerate a new one.                           │
+    │                                                  │
+    │ [Reset Token] button                            │
+    │                                                  │
+    │ ••••••••••••••••••••••••••••••••••••••• [Copy]  │  ← CLICK COPY
+    │                                                  │
+    └─────────────────────────────────────────────────┘
+
+The token shows as dots (•••) for security.
+The [Copy] button copies the hidden token.
+
+═══════════════════════════════════════════════════════════════════════════════
+
+IF YOU STILL DON'T SEE IT
+
+1. Scroll down (might be below the visible area)
+2. Refresh the page (F5)
+3. Look for "Add Bot" button and click it first
+4. Check you're logged in to Discord (top right shows your account)
+
+═══════════════════════════════════════════════════════════════════════════════
+
+ONCE YOU HAVE BOTH CREDENTIALS:
+
+    bash setup_env.sh
+
+Then:
+
+    source .venv/bin/activate
+    python main.py
+
+Test: !balance
+
+═══════════════════════════════════════════════════════════════════════════════
+
+That's it! You have everything. Just need those 2 credentials.
+
+For more details, read: GETTING_STARTED.md
