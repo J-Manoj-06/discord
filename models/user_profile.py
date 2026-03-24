@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 
 @dataclass
@@ -24,3 +24,4 @@ class UserProfile:
     equipped_title: Optional[str] = None
     equipped_theme: str = "classic_theme"
     votes_cast: int = 0
+    roles_played: Dict[str, int] = field(default_factory=dict)

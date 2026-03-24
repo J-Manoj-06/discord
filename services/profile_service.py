@@ -148,3 +148,55 @@ class ProfileService:
         """Check if user has unlocked a cosmetic."""
         profile = await self.get_profile(user_id, guild_id)
         return cosmetic_id in profile.unlocked_cosmetics
+
+    async def record_game_end(
+        self,
+        village_player_ids: list,
+        mafia_player_ids: list,
+        winner: str,
+        roles: dict,
+        guild_id: int,
+    ) -> None:
+        """
+        Record game statistics when a game ends.
+        
+        Args:
+            village_player_ids: List of villager player IDs
+            mafia_player_ids: List of mafia player IDs
+            winner: "villagers" or "mafia"
+            roles: Dict mapping player_id to role name
+            guild_id: Guild ID for the game
+        """
+        winners_ids = village_player_ids if winner == "villagers" else mafia_player_ids
+        losers_ids = mafia_player_ids if winner == "villagers" else village_player_ids
+        
+        # Update winners
+        for player_id in winners_ids:
+            role = roles.get(player_id, "unknown")
+            try:
+                await self.profile_repo.update_game_stats(player_id, guild_id, role, won=True)
+            except Exception as e:
+                logger.error(f"Failed to record win for player {player_id}: {e}")
+        
+        # Update losers
+        for player_id in losers_ids:
+            role = roles.get(player_id, "unknown")
+            try:
+                await self.profile_repo.update_game_stats(player_id, guild_id, role, won=False)
+            except Exception as e:
+                logger.error(f"Failed to record loss for player {player_id}: {e}")
+    
+    async def get_favorite_role(self, user_id: int, guild_id: int) -> Optional[str]:
+        """
+        Get the player's favorite role (most played).
+        Returns None if no games played yet.
+        """
+        profile = await self.get_profile(user_id, guild_id)
+        if not profile.roles_played:
+            return None
+        
+        if not profile.roles_played:
+            return None
+            
+        favorite = max(profile.roles_played, key=profile.roles_played.get)
+        return favorite if favorite else None

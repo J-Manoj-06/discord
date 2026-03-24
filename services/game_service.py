@@ -25,6 +25,7 @@ from bot.ui.voting_buttons import VotingView
 from bot.ui.player_select import get_player_display_name
 from roles.role_manager import RoleManager
 from services.action_resolver import Action, resolve_actions
+from services.role_info_service import RoleInfoService
 
 if TYPE_CHECKING:
     from services.mafia_profile_service import MafiaProfileService
@@ -71,6 +72,7 @@ class GameService:
         self.game_tasks: Dict[int, asyncio.Task] = {}
         self.profile_service = profile_service
         self.role_manager = RoleManager()
+        self.role_info_service = RoleInfoService()
         self.mafia_role_names = self.role_manager.mafia_role_names()
 
     def _get_or_create_session(self, guild_id: int) -> Dict:
@@ -279,7 +281,12 @@ class GameService:
             try:
                 role_obj = self.role_manager.create_role(role_name)
                 default_msg = self.ROLE_DM_MESSAGES.get(role_name, role_obj.description())
-                await member.send(default_msg)
+                await member.send(f"🎭 Your Role\n\nYou are the {self.role_info_service.display_name(role_name)}!")
+                embed = self.role_info_service.build_embed(role_name, title="🎭 Role Information")
+                if embed is not None:
+                    await member.send(embed=embed)
+                else:
+                    await member.send(default_msg)
                 return user_id, True
             except (discord.Forbidden, discord.HTTPException):
                 return user_id, False
@@ -982,6 +989,7 @@ class GameService:
                     mafia_player_ids=mafia_alive,
                     winner=winner.lower(),
                     roles=session["roles"],
+                    guild_id=guild.id,
                 )
             except Exception as exc:
                 logger.error("Failed to record game stats: %s", exc)

@@ -35,6 +35,7 @@ class ProfileRepository:
             "votes_cast": 0,
             "unlocked_cosmetics": ["rookie_title", "classic_theme", "default_vote"],
             "favorite_role": None,
+            "roles_played": {},
             "created_at": now,
             "updated_at": now,
         }
@@ -68,6 +69,7 @@ class ProfileRepository:
             favorite_role=doc.get("favorite_role"),
             created_at=doc.get("created_at"),
             updated_at=doc.get("updated_at"),
+            roles_played=doc.get("roles_played", {}),
         )
 
     async def update_xp_and_level(self, user_id: int, guild_id: int, xp: int, level: int) -> bool:
@@ -249,3 +251,48 @@ class ProfileRepository:
             upsert=True,
             return_document=ReturnDocument.AFTER,
         )
+
+    async def update_game_stats(self, user_id: int, guild_id: int, role: str, won: bool) -> Dict[str, Any]:
+        """
+        Update player stats after a game:
+        - Increment games_played
+        - Increment wins/losses based on outcome
+        - Track role usage in roles_played
+        """
+        now = datetime.now(timezone.utc)
+        
+        # Prepare the update operations
+        update_ops = {
+            "$inc": {"games_played": 1},
+            "$set": {"updated_at": now},
+            "$setOnInsert": self._default_profile(user_id, guild_id),
+        }
+        
+        # Increment wins or losses
+        if won:
+            update_ops["$inc"]["wins"] = 1
+        else:
+            update_ops["$inc"]["losses"] = 1
+        
+        # Track role usage
+        role_key = f"roles_played.{role}"
+        update_ops["$inc"][role_key] = 1
+        
+        # Update stats
+        return await self.collection.find_one_and_update(
+            {"user_id": user_id, "guild_id": guild_id},
+            update_ops,
+            upsert=True,
+            return_document=ReturnDocument.AFTER,
+        )
+
+    async def get_favorite_role(self, user_id: int, guild_id: int) -> Optional[str]:
+        """
+        Calculate and return the favorite role (most played role).
+        """
+        profile = await self.find_by_user_guild(user_id, guild_id)
+        if not profile or not profile.roles_played:
+            return None
+        
+        favorite = max(profile.roles_played, key=profile.roles_played.get)
+        return favorite if favorite else None

@@ -39,7 +39,7 @@ from services.config_service import ConfigService
 
 # Import command cogs
 from bot.commands import (
-    profile_commands,
+    profile,
     join,
     leave,
     start,
@@ -50,6 +50,7 @@ from bot.commands import (
     players,
     endgame,
     roles,
+    roleinfo,
     action,
     configmode,
     mode,
@@ -88,7 +89,8 @@ class MafiaHelpCommand(commands.HelpCommand):
             value=(
                 "`!configmode <classic|advanced|chaos>` - Set mode (admin)\n"
                 "`!mode` - Show current mode\n"
-                "`!roles` - Show role list"
+                "`!roles` - Show role list\n"
+                "`!roleinfo <role>` - Show detailed role info"
             ),
             inline=False,
         )
@@ -106,7 +108,10 @@ class MafiaHelpCommand(commands.HelpCommand):
 
         embed.add_field(
             name="Profile",
-            value="No profile commands available",
+            value=(
+                "`!profile` - Show player profile\n"
+                "`!profile @user` - View another player's profile"
+            ),
             inline=False,
         )
 
@@ -199,9 +204,9 @@ class MafiaBot(commands.Bot):
         """Load command cogs."""
         logger.info("Loading command cogs...")
 
-        # Load profile commands
-        await profile_commands.setup(self, self.profile_service, self.economy_service)
-        logger.info("✓ Profile commands loaded")
+        # Load player profile command
+        await profile.setup(self, self.profile_service)
+        logger.info("✓ Profile command loaded")
 
         # Load game flow commands
         await join.setup(self, self.party_service)
@@ -231,6 +236,9 @@ class MafiaBot(commands.Bot):
 
         await roles.setup(self)
         logger.info("✓ Roles command loaded")
+
+        await roleinfo.setup(self)
+        logger.info("✓ Roleinfo command loaded")
 
         await action.setup(self, self.game_service)
         logger.info("✓ Action command loaded")
