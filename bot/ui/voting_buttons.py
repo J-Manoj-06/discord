@@ -75,6 +75,13 @@ class VoteButton(discord.ui.Button):
             )
             return
 
+        if session.get("bread_vote_effects", {}).get(voter_id) == "no_vote":
+            await interaction.response.send_message(
+                "❌ You cannot vote today.",
+                ephemeral=True,
+            )
+            return
+
         # Prevent voting twice
         if voter_id in session["votes"]:
             await interaction.response.send_message(

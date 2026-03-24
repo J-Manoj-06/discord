@@ -35,13 +35,12 @@ from services.shop_service import ShopService
 from services.game_service import GameService
 from services.party_service import PartyService
 from services.mafia_profile_service import MafiaProfileService
+from services.config_service import ConfigService
 
 # Import command cogs
 from bot.commands import (
     economy_commands,
     profile_commands,
-    shop_commands,
-    vote_effect_commands,
     join,
     leave,
     start,
@@ -54,9 +53,94 @@ from bot.commands import (
     endgame,
     roles,
     action,
+    configmode,
+    mode,
 )
 
 logger = logging.getLogger(__name__)
+
+
+class MafiaHelpCommand(commands.HelpCommand):
+    """Custom help output focused on active, easy-to-read game commands."""
+
+    async def send_bot_help(self, mapping):
+        destination = self.get_destination()
+
+        embed = discord.Embed(
+            title="Mafia Bot Help",
+            description="Simple command guide. Prefix: `!`",
+            color=discord.Color.blurple(),
+        )
+
+        embed.add_field(
+            name="Game Flow",
+            value=(
+                "`!join` - Join party lobby\n"
+                "`!party` - Show party players\n"
+                "`!start` - Start game\n"
+                "`!action` - Submit night action\n"
+                "`!players` - Show alive players\n"
+                "`!endgame` - End active game (admin)"
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="Game Setup",
+            value=(
+                "`!configmode <classic|advanced|chaos>` - Set mode (admin)\n"
+                "`!mode` - Show current mode\n"
+                "`!roles` - Show role list"
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="Party Management",
+            value=(
+                "`!add @user` - Add player (admin)\n"
+                "`!kick @user` - Remove player (admin)\n"
+                "`!clearparty` - Clear party (admin)\n"
+                "`!leave` - Leave waiting game"
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="Profile",
+            value=(
+                "`!profile` - Show mafia profile\n"
+                "`!rank` - Show your rank"
+            ),
+            inline=False,
+        )
+
+        embed.set_footer(text="Tip: Use !help <command> for details")
+        await destination.send(embed=embed)
+
+    async def send_command_help(self, command):
+        destination = self.get_destination()
+
+        signature = self.get_command_signature(command)
+        embed = discord.Embed(
+            title=f"Help: {command.name}",
+            description=command.help or "No description available.",
+            color=discord.Color.blurple(),
+        )
+        embed.add_field(name="Usage", value=f"`{signature}`", inline=False)
+
+        if command.aliases:
+            embed.add_field(
+                name="Aliases",
+                value=", ".join(f"`{alias}`" for alias in command.aliases),
+                inline=False,
+            )
+
+        await destination.send(embed=embed)
+
+    async def send_error_message(self, error):
+        destination = self.get_destination()
+        await destination.send(f"❌ {error}")
 
 
 class MafiaBot(commands.Bot):
@@ -78,6 +162,7 @@ class MafiaBot(commands.Bot):
         self.game_service: Optional[GameService] = None
         self.party_service: Optional[PartyService] = None
         self.mafia_profile_service: Optional[MafiaProfileService] = None
+        self.config_service: Optional[ConfigService] = None
 
     async def setup_services(self):
         """Initialize database and services."""
@@ -109,6 +194,7 @@ class MafiaBot(commands.Bot):
         self.vote_effect_service = VoteEffectService(self.inventory_repo)
         self.shop_service = ShopService(self.inventory_repo)
         self.party_service = PartyService()
+        self.config_service = ConfigService()
         self.mafia_profile_service = MafiaProfileService(self.mafia_game_stats_repo)
         self.game_service = GameService(self.mafia_profile_service)
 
@@ -126,24 +212,6 @@ class MafiaBot(commands.Bot):
         await profile_commands.setup(self, self.profile_service, self.economy_service)
         logger.info("✓ Profile commands loaded")
 
-        # Load shop commands
-        await shop_commands.setup(
-            self,
-            self.shop_service,
-            self.economy_service,
-            self.profile_service,
-        )
-        logger.info("✓ Shop commands loaded")
-
-        # Load vote effect commands
-        await vote_effect_commands.setup(
-            self,
-            self.vote_effect_service,
-            self.economy_service,
-            self.profile_service,
-        )
-        logger.info("✓ Vote effect commands loaded")
-
         # Load game flow commands
         await join.setup(self, self.party_service)
         logger.info("✓ Join command loaded")
@@ -151,7 +219,7 @@ class MafiaBot(commands.Bot):
         await leave.setup(self, self.game_service)
         logger.info("✓ Leave command loaded")
 
-        await start.setup(self, self.game_service, self.party_service)
+        await start.setup(self, self.game_service, self.party_service, self.config_service)
         logger.info("✓ Start command loaded")
 
         # Load Mafia game profile command
@@ -179,6 +247,12 @@ class MafiaBot(commands.Bot):
 
         await action.setup(self, self.game_service)
         logger.info("✓ Action command loaded")
+
+        await configmode.setup(self, self.config_service, self.game_service)
+        logger.info("✓ Configmode command loaded")
+
+        await mode.setup(self, self.config_service)
+        logger.info("✓ Mode command loaded")
 
         await endgame.setup(self, self.game_service, self.party_service)
         logger.info("✓ Endgame command loaded")
@@ -217,7 +291,7 @@ def create_bot() -> MafiaBot:
     bot = MafiaBot(
         command_prefix="!",
         intents=intents,
-        help_command=commands.DefaultHelpCommand(),
+        help_command=MafiaHelpCommand(),
     )
 
     return bot

@@ -45,6 +45,9 @@ class NightActionService:
         if not ok:
             return False, message
 
+        if role == "baker" and target_id in session.get("bread_players", set()):
+            return False, "That player already received bread."
+
         submit_ok, submit_message = await self.game_service.submit_night_action(
             guild_id=guild_id,
             actor_id=user_id,
@@ -56,4 +59,6 @@ class NightActionService:
 
         # Explicit once-per-night marker for the single-button flow.
         session.setdefault("night_actions", {})[marker_key] = target_id
+        if role == "baker":
+            return True, "Bread delivered 🍞"
         return True, "Action submitted."

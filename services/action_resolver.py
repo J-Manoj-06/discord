@@ -6,6 +6,7 @@ changing game loop logic.
 
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -40,6 +41,7 @@ class ResolutionState:
         self.messages: List[str] = []
         self.death_causes: Dict[int, str] = {}
         self.submissor_events: List[Dict[str, Any]] = []
+        self.bread_events: List[Dict[str, Any]] = []
 
 
 def _team_from_attacker_role(game: Dict[str, Any], attacker_role: str) -> str:
@@ -62,7 +64,9 @@ def _safe_target(action: Action, state: ResolutionState) -> bool:
         return action.action_type in {"utility", "block", "redirect"}
 
     if action.target == action.actor:
-        return False
+        # Doctor can self-target in this ruleset.
+        if not (action.action_type == "protect" and action.role_name == "doctor"):
+            return False
 
     if action.target not in state.alive:
         return False
@@ -139,6 +143,13 @@ def execute_action(action: Action, state: ResolutionState) -> None:
 
     if action.action_type in {"kill", "delayed_kill"}:
         if target is None or target not in state.alive:
+            return
+
+        # Baker heal protects only from mafia attacks.
+        if (
+            target in state.game.get("bread_heal_targets", set())
+            and action.role_name in state.game.get("mafia_role_names", set())
+        ):
             return
 
         target_role = state.game.get("roles", {}).get(target)
@@ -234,6 +245,43 @@ def execute_action(action: Action, state: ResolutionState) -> None:
         return
 
     if action.action_type == "utility":
+        if action.role_name == "baker" and target is not None:
+            bread_players = state.game.setdefault("bread_players", set())
+            if target in bread_players:
+                return
+
+            bread_players.add(target)
+
+            player_states = state.game.setdefault("player_states", {})
+            target_state = player_states.setdefault(
+                target,
+                {
+                    "role": state.game.get("roles", {}).get(target, "unknown"),
+                    "has_bread": False,
+                    "bread_effect": None,
+                },
+            )
+            target_state["has_bread"] = True
+
+            effect = random.choice(["extra_vote", "heal", "distract", "no_vote"])
+            target_state["bread_effect"] = effect
+
+            if effect == "heal":
+                state.game.setdefault("bread_heal_targets", set()).add(target)
+            elif effect == "distract":
+                state.blocked.add(target)
+            elif effect in {"extra_vote", "no_vote"}:
+                state.game.setdefault("bread_vote_effects", {})[target] = effect
+
+            state.bread_events.append(
+                {
+                    "baker": action.actor,
+                    "target": target,
+                    "effect": effect,
+                }
+            )
+            return
+
         if action.role_name == "silencer" and target is not None:
             state.silenced_players.add(target)
         if action.role_name == "timetraveler":
@@ -281,4 +329,5 @@ def resolve_actions(actions: List[Action], game: Dict[str, Any]) -> Dict[str, An
         "messages": state.messages,
         "death_causes": state.death_causes,
         "submissor_events": state.submissor_events,
+        "bread_events": state.bread_events,
     }

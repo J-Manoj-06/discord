@@ -39,6 +39,14 @@ class RolesCog(commands.Cog):
             inline=False,
         )
         embed.add_field(
+            name="🍞 Baker (Neutral Role)",
+            value=(
+                "Each night give bread to one alive player. Bread grants a random effect. "
+                "Win by feeding the required number of alive players while you remain alive."
+            ),
+            inline=False,
+        )
+        embed.add_field(
             name="🛐 Submissor (Neutral Role)",
             value=(
                 "You have no abilities. The first player who attacks you converts "

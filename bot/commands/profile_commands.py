@@ -74,14 +74,6 @@ class ProfileCog(commands.Cog):
                 inline=True,
             )
 
-            # Equipped cosmetics
-            cosmetics_text = (
-                f"Title: {profile.equipped_title or 'None'}\n"
-                f"Theme: {profile.equipped_theme or 'Classic'}\n"
-                f"Favorite Role: {profile.favorite_role or 'None'}"
-            )
-            embed.add_field(name="🎨 Cosmetics", value=cosmetics_text, inline=True)
-
             embed.set_footer(text=f"Member since {profile.created_at.strftime('%b %d, %Y')}")
 
             await ctx.send(embed=embed)
@@ -117,112 +109,6 @@ class ProfileCog(commands.Cog):
         except Exception as e:
             logger.error(f"Error in rank command: {e}")
             await ctx.send(f"❌ Error: {str(e)}")
-
-    @commands.command(name="titles")
-    async def titles(self, ctx: commands.Context):
-        """List owned titles."""
-        try:
-            profile = await self.profile.get_profile(ctx.author.id, ctx.guild.id)
-
-            # Example titles (would need inventory integration for full system)
-            titles_text = (
-                "**Owned Titles:**\n"
-                "🎖️ Rookie (default)\n"
-                "📝 Detective Mind (purchased)\n\n"
-                "Use `!equiptitle <name>` to set a title"
-            )
-
-            embed = EmbedBuilder.create(
-                title="Titles",
-                description=titles_text,
-                color=discord.Color.gold(),
-            )
-            await ctx.send(embed=embed)
-        except Exception as e:
-            logger.error(f"Error in titles command: {e}")
-            await ctx.send(f"❌ Error: {str(e)}")
-
-    @commands.command(name="equiptitle")
-    async def equip_title(self, ctx: commands.Context, *, title: str):
-        """Equip a title to your profile."""
-        try:
-            if not title:
-                await ctx.send("Usage: `!equiptitle <title name>`")
-                return
-
-            success = await self.profile.set_equipped_title(
-                ctx.author.id, ctx.guild.id, title
-            )
-
-            if success:
-                embed = EmbedBuilder.create(
-                    title="✨ Title Equipped",
-                    description=f"Your title is now: **{title}**",
-                    color=discord.Color.green(),
-                )
-            else:
-                embed = EmbedBuilder.create(
-                    title="❌ Error",
-                    description="Could not equip title",
-                    color=discord.Color.red(),
-                )
-
-            await ctx.send(embed=embed)
-        except Exception as e:
-            logger.error(f"Error in equiptitle command: {e}")
-            await ctx.send(f"❌ Error: {str(e)}")
-
-    @commands.command(name="themes")
-    async def themes(self, ctx: commands.Context):
-        """List owned profile themes."""
-        try:
-            themes_text = (
-                "**Owned Themes:**\n"
-                "🎨 Classic (default)\n"
-                "🌙 Midnight (purchased)\n\n"
-                "Use `!equiptheme <name>` to set a theme"
-            )
-
-            embed = EmbedBuilder.create(
-                title="Profile Themes",
-                description=themes_text,
-                color=discord.Color.blurple(),
-            )
-            await ctx.send(embed=embed)
-        except Exception as e:
-            logger.error(f"Error in themes command: {e}")
-            await ctx.send(f"❌ Error: {str(e)}")
-
-    @commands.command(name="equiptheme")
-    async def equip_theme(self, ctx: commands.Context, *, theme: str):
-        """Equip a profile theme."""
-        try:
-            if not theme:
-                await ctx.send("Usage: `!equiptheme <theme name>`")
-                return
-
-            success = await self.profile.set_equipped_theme(
-                ctx.author.id, ctx.guild.id, theme
-            )
-
-            if success:
-                embed = EmbedBuilder.create(
-                    title="✨ Theme Applied",
-                    description=f"Your profile theme is now: **{theme}**",
-                    color=discord.Color.green(),
-                )
-            else:
-                embed = EmbedBuilder.create(
-                    title="❌ Error",
-                    description="Could not equip theme",
-                    color=discord.Color.red(),
-                )
-
-            await ctx.send(embed=embed)
-        except Exception as e:
-            logger.error(f"Error in equiptheme command: {e}")
-            await ctx.send(f"❌ Error: {str(e)}")
-
 
 async def setup(
     bot: commands.Bot,

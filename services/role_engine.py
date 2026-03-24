@@ -12,12 +12,14 @@ class RoleEngine:
         "detective": "town",
         "villager": "town",
         "submissor": "neutral",
+        "baker": "neutral",
     }
 
     ACTION_MAP = {
         "godfather": "kill",
         "doctor": "heal",
         "detective": "investigate",
+        "baker": "utility",
     }
 
     @classmethod

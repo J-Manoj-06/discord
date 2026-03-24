@@ -74,10 +74,15 @@ class NightTargetSelect(discord.ui.Select):
     def _get_valid_targets(self, session: Dict) -> List[int]:
         """Get alive targets and apply role-specific self-target restrictions."""
         valid = []
+        bread_players = session.get("bread_players", set())
 
         for player_id in session["alive_players"]:
             # Exclude self when role rule forbids it.
             if player_id == self.actor_id and not RoleEngine.can_target_self(self.actor_role):
+                continue
+
+            # Baker can only give bread once per player.
+            if self.actor_role == "baker" and player_id in bread_players:
                 continue
 
             valid.append(player_id)
@@ -147,6 +152,15 @@ class NightTargetSelect(discord.ui.Select):
 
         action_type = RoleEngine.get_action_type(self.actor_role)
         target_name = get_player_display_name(self.guild, target_id)
+        if self.actor_role == "baker":
+            embed = discord.Embed(
+                title="Bread delivered 🍞",
+                description=f"Target: **{target_name}**",
+                color=discord.Color.gold(),
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
         if action_type == "kill":
             action_text = "Kill"
         elif action_type == "heal":

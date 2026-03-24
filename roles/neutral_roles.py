@@ -13,6 +13,7 @@ NEUTRAL_ROLE_NAMES = {
     "arsonist",
     "vampire",
     "submissor",
+    "baker",
 }
 
 

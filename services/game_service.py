@@ -37,6 +37,11 @@ class GameService:
 
     REQUIRED_ROLES = ["detective", "godfather", "doctor", "villager"]
     MIN_PLAYERS = 4
+    MODE_MIN_PLAYERS = {
+        "classic": 4,
+        "advanced": 6,
+        "chaos": 8,
+    }
     NIGHT_DURATION_SECONDS = 60
     DAY_DURATION_SECONDS = 60
     VOTING_DURATION_SECONDS = 60
@@ -46,6 +51,10 @@ class GameService:
         "doctor": "You are the Doctor 💉. You can save one player each night.",
         "detective": "You are the Detective 🔍. You can investigate players.",
         "villager": "You are a Villager 👤. Find and eliminate the mafia.",
+        "baker": (
+            "You are the Baker 🍞. Each night you can give bread to one alive player. "
+            "Win by giving bread to enough alive players while staying alive."
+        ),
         "submissor": (
             "You are the Submissor 🛐. You have no active ability. "
             "First attack converts you to the attacker's side; second attack kills you."
@@ -85,6 +94,11 @@ class GameService:
                 "mode": "classic",
                 "day_count": 1,
                 "manual_end": False,
+                "bread_players": set(),
+                "player_states": {},
+                "bread_heal_targets": set(),
+                "bread_vote_effects": {},
+                "baker_victory_awarded": set(),
             }
         return self.game_sessions[guild_id]
 
@@ -97,6 +111,9 @@ class GameService:
 
     def get_session(self, guild_id: int) -> Dict:
         return self._get_or_create_session(guild_id)
+
+    def _min_players_for_mode(self, mode: str) -> int:
+        return self.MODE_MIN_PLAYERS.get(mode.lower().strip(), self.MIN_PLAYERS)
 
     def set_game_mode(self, guild_id: int, mode: str) -> Tuple[bool, str]:
         """Set game mode before start. Supported: classic, advanced, chaos."""
@@ -146,8 +163,9 @@ class GameService:
         if session["phase"] != "waiting":
             return False, "Game already started.", {}
 
-        if len(players) < self.MIN_PLAYERS:
-            return False, f"Need at least {self.MIN_PLAYERS} players to start.", {}
+        min_players = self._min_players_for_mode(mode)
+        if len(players) < min_players:
+            return False, f"Need at least {min_players} players to start.", {}
 
         assigned = self.role_manager.assign_roles(players, mode)
         roles: Dict[int, str] = {user_id: role.name for user_id, role in assigned.items()}
@@ -169,6 +187,18 @@ class GameService:
         session["neutral_role_names"] = self.role_manager.neutral_role_names()
         session["village_role_names"] = self.role_manager.village_role_names()
         session["submissor_state"] = {}
+        session["bread_players"] = set()
+        session["player_states"] = {}
+        session["bread_heal_targets"] = set()
+        session["bread_vote_effects"] = {}
+        session["baker_victory_awarded"] = set()
+
+        for user_id, role_name in roles.items():
+            session["player_states"][user_id] = {
+                "role": role_name,
+                "has_bread": False,
+                "bread_effect": None,
+            }
 
         for user_id, role_name in roles.items():
             if role_name == "submissor":
@@ -257,6 +287,74 @@ class GameService:
         results = await asyncio.gather(*[_dm_one(uid, role) for uid, role in roles.items()])
         return [uid for uid, ok in results if not ok]
 
+    def _baker_has_necronomicon(self, session: Dict, baker_id: int) -> bool:
+        """Check session-scoped item containers for Necronomicon ownership."""
+        raw = session.get("player_items", {}).get(baker_id)
+        if raw is None:
+            raw = session.get("items", {}).get(baker_id)
+
+        if isinstance(raw, dict):
+            raw = raw.get("items", [])
+
+        if isinstance(raw, (set, list, tuple)):
+            return any(str(item).lower() == "necronomicon" for item in raw)
+
+        if isinstance(raw, str):
+            return raw.lower() == "necronomicon"
+
+        return False
+
+    async def _process_baker_victory(self, guild: discord.Guild, channel: discord.TextChannel) -> None:
+        """Process baker victory checks during day while baker is alive."""
+        session = self._get_or_create_session(guild.id)
+        awarded = session.setdefault("baker_victory_awarded", set())
+
+        for player_id in list(session.get("alive_players", [])):
+            if session.get("roles", {}).get(player_id) != "baker":
+                continue
+            if player_id in awarded:
+                continue
+
+            required_bread = max(2, len(session.get("alive_players", [])) // 3)
+            alive_breaded = [
+                pid for pid in session.get("bread_players", set())
+                if pid in session.get("alive_players", [])
+            ]
+
+            if len(alive_breaded) < required_bread:
+                continue
+
+            awarded.add(player_id)
+            baker_name = get_player_display_name(guild, player_id)
+            await channel.send(
+                f"🍞 **Baker Victory Condition Met**\n\n"
+                f"{baker_name} has successfully fed enough alive players."
+            )
+
+            if not self._baker_has_necronomicon(session, player_id):
+                continue
+
+            poisoned = [pid for pid in alive_breaded if pid != player_id]
+            for poisoned_id in poisoned:
+                if poisoned_id in session["alive_players"]:
+                    session["alive_players"].remove(poisoned_id)
+                    session.setdefault("death_history", []).append(poisoned_id)
+
+            if player_id in session["alive_players"]:
+                session["alive_players"].remove(player_id)
+
+            if poisoned:
+                poisoned_lines = "\n".join(get_player_display_name(guild, pid) for pid in poisoned)
+            else:
+                poisoned_lines = "_No breaded players remained alive._"
+
+            await channel.send(
+                "☠️ **Necronomicon Triggered**\n"
+                f"{baker_name} leaves the village in victory.\n\n"
+                "Poisoned bread victims:\n"
+                f"{poisoned_lines}"
+            )
+
     async def create_game_channel(
         self,
         guild: discord.Guild,
@@ -344,8 +442,10 @@ class GameService:
         if session["phase"] != "waiting":
             return False, "Game already started."
 
-        if len(session["players"]) < self.MIN_PLAYERS:
-            return False, f"Need at least {self.MIN_PLAYERS} players to start."
+        active_mode = session.get("mode", "classic")
+        min_players = self._min_players_for_mode(active_mode)
+        if len(session["players"]) < min_players:
+            return False, f"Need at least {min_players} players to start."
 
         success, message, roles = self.assign_roles(guild_id, mode=session.get("mode", "classic"))
         if not success:
@@ -434,6 +534,12 @@ class GameService:
             role_obj = self.role_manager.create_role(role_name)
             session.setdefault("role_objects", {})[actor_id] = role_obj
 
+        if role_obj.name == "baker":
+            if target_id is None:
+                return False, "Baker must choose a target."
+            if target_id in session.get("bread_players", set()):
+                return False, "That player already received bread."
+
         if not role_obj.can_use_action(internal_action_type):
             return False, "Your role cannot use this action."
 
@@ -484,6 +590,10 @@ class GameService:
                     break
 
                 await self.run_day_phase(guild_id, channel)
+
+                game_over = await self.check_win_conditions(guild_id, guild, channel)
+                if game_over:
+                    break
 
                 game_over = await self.run_voting_phase(guild_id, guild, channel)
                 if game_over:
@@ -566,6 +676,7 @@ class GameService:
         session["night_actions"] = {}
         session["actions"] = []
         session["night_reports"] = {}
+        session["bread_heal_targets"] = set()
 
         await channel.send(
             "🌙 **Night Phase** has begun.\n\n"
@@ -597,6 +708,7 @@ class GameService:
         investigations = resolution.get("investigations", {})
         exact_roles = resolution.get("exact_role_results", {})
         submissor_events = resolution.get("submissor_events", [])
+        bread_events = resolution.get("bread_events", [])
 
         # DM conversion notifications for submissor intercept events.
         for event in submissor_events:
@@ -616,6 +728,34 @@ class GameService:
                     )
                 except (discord.Forbidden, discord.HTTPException):
                     pass
+
+        for event in bread_events:
+            baker_id = event.get("baker")
+            target_id = event.get("target")
+            effect = event.get("effect", "unknown")
+
+            target_member = guild.get_member(target_id)
+            if target_member:
+                try:
+                    await target_member.send(
+                        "🍞 You received bread tonight.\n"
+                        f"Effect: **{str(effect).replace('_', ' ').title()}**"
+                    )
+                except (discord.Forbidden, discord.HTTPException):
+                    pass
+
+            baker_member = guild.get_member(baker_id)
+            if baker_member:
+                try:
+                    target_name = get_player_display_name(guild, target_id)
+                    await baker_member.send(f"🍞 Bread delivered to **{target_name}**.")
+                except (discord.Forbidden, discord.HTTPException):
+                    pass
+
+            if effect in {"heal", "distract"}:
+                player_state = session.get("player_states", {}).get(target_id)
+                if player_state is not None:
+                    player_state["bread_effect"] = None
 
             attacker_member = guild.get_member(attacker_id)
             if attacker_member:
@@ -670,6 +810,9 @@ class GameService:
         session = self._get_or_create_session(guild_id)
         session["phase"] = "day"
 
+        guild = channel.guild
+        await self._process_baker_victory(guild, channel)
+
         await channel.send(
             f"☀️ **Day Phase** - Day {session['day_count']}\n\n"
             "_Everyone can discuss who might be mafia. "
@@ -714,12 +857,21 @@ class GameService:
         """
         session = self._get_or_create_session(guild_id)
         votes: Dict[int, int] = session["votes"]
+        vote_effects = session.get("bread_vote_effects", {})
 
         if not votes:
             await channel.send("🗳️ **Voting Result**\n\nNo votes were cast. Nobody is eliminated.")
+            for player_id in list(vote_effects.keys()):
+                player_state = session.get("player_states", {}).get(player_id)
+                if player_state is not None:
+                    player_state["bread_effect"] = None
+            session["bread_vote_effects"] = {}
             return
 
-        counts = Counter(votes.values())
+        counts = Counter()
+        for voter_id, target_id in votes.items():
+            weight = 2 if vote_effects.get(voter_id) == "extra_vote" else 1
+            counts[target_id] += weight
         max_votes = max(counts.values())
         top_targets = [target_id for target_id, count in counts.items() if count == max_votes]
 
@@ -745,6 +897,12 @@ class GameService:
             f"Votes: {vote_count}\n"
             f"Role: *{eliminated_role.title()}*"
         )
+
+        for player_id in list(vote_effects.keys()):
+            player_state = session.get("player_states", {}).get(player_id)
+            if player_state is not None:
+                player_state["bread_effect"] = None
+        session["bread_vote_effects"] = {}
 
     async def check_win_conditions(self, guild_id: int, guild: discord.Guild, channel: discord.TextChannel) -> bool:
         """Check if game has ended and determine winner.

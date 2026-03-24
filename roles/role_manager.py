@@ -9,16 +9,27 @@ from .base_role import MAFIA, NEUTRAL, SPECIAL, VILLAGE, Role
 from .mafia_roles import Assassin, Consigliere, Disguiser, Framer, Godfather, Mafia, Poisoner, Silencer
 from .neutral_roles import Arsonist, Executioner, Jester, SerialKiller, Vampire
 from .special_roles import Gambler, Magnet, Shapeshifter, TimeTraveler, Trickster
+from .baker import Baker
+from .baiter import Baiter
 from .submissor import Submissor
 from .village_roles import Bodyguard, Detective, Doctor, GuardianAngel, Lookout, Mayor, Medium, Sheriff, Spy, Tracker, Villager
 
 
 GAME_MODES = {
     "classic": [
-        "godfather", "mafia", "detective", "doctor", "villager",
+        "godfather", "detective", "doctor", "villager",
     ],
     "advanced": [
-        "godfather", "mafia", "detective", "doctor", "bodyguard", "framer", "jester",
+        "godfather",
+        "detective",
+        "doctor",
+        "villager",
+        "baker",
+        "baiter",
+        "submissor",
+        "sheriff",
+        "bodyguard",
+        "tracker",
     ],
     "chaos": "ALL",
 }
@@ -54,6 +65,8 @@ class RoleManager:
             "arsonist": Arsonist,
             "vampire": Vampire,
             "submissor": Submissor,
+            "baker": Baker,
+            "baiter": Baiter,
             "timetraveler": TimeTraveler,
             "gambler": Gambler,
             "shapeshifter": Shapeshifter,
@@ -130,6 +143,7 @@ class RoleManager:
         configured = GAME_MODES.get(mode, GAME_MODES["classic"])
 
         if configured == "ALL":
+            # Chaos uses the entire role registry as available pool.
             return self._build_chaos_pool(player_count)
 
         pool = list(configured)
