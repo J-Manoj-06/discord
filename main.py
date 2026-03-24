@@ -47,11 +47,9 @@ from bot.commands import (
     kick,
     clearparty,
     party,
-    players,
     endgame,
     roles,
     roleinfo,
-    action,
     configmode,
     mode,
 )
@@ -77,8 +75,6 @@ class MafiaHelpCommand(commands.HelpCommand):
                 "`!join` - Join party lobby\n"
                 "`!party` - Show party players\n"
                 "`!start` - Start game\n"
-                "`!action` - Submit night action\n"
-                "`!players` - Show alive players\n"
                 "`!endgame` - End active game (admin)"
             ),
             inline=False,
@@ -231,17 +227,11 @@ class MafiaBot(commands.Bot):
         await party.setup(self, self.party_service)
         logger.info("✓ Party command loaded")
 
-        await players.setup(self, self.game_service)
-        logger.info("✓ Players command loaded")
-
         await roles.setup(self)
         logger.info("✓ Roles command loaded")
 
         await roleinfo.setup(self)
         logger.info("✓ Roleinfo command loaded")
-
-        await action.setup(self, self.game_service)
-        logger.info("✓ Action command loaded")
 
         await configmode.setup(self, self.config_service, self.game_service)
         logger.info("✓ Configmode command loaded")
