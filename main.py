@@ -39,12 +39,10 @@ from services.config_service import ConfigService
 
 # Import command cogs
 from bot.commands import (
-    economy_commands,
     profile_commands,
     join,
     leave,
     start,
-    profile,
     add,
     kick,
     clearparty,
@@ -108,10 +106,7 @@ class MafiaHelpCommand(commands.HelpCommand):
 
         embed.add_field(
             name="Profile",
-            value=(
-                "`!profile` - Show mafia profile\n"
-                "`!rank` - Show your rank"
-            ),
+            value="No profile commands available",
             inline=False,
         )
 
@@ -204,10 +199,6 @@ class MafiaBot(commands.Bot):
         """Load command cogs."""
         logger.info("Loading command cogs...")
 
-        # Load economy commands
-        await economy_commands.setup(self, self.economy_service)
-        logger.info("✓ Economy commands loaded")
-
         # Load profile commands
         await profile_commands.setup(self, self.profile_service, self.economy_service)
         logger.info("✓ Profile commands loaded")
@@ -221,10 +212,6 @@ class MafiaBot(commands.Bot):
 
         await start.setup(self, self.game_service, self.party_service, self.config_service)
         logger.info("✓ Start command loaded")
-
-        # Load Mafia game profile command
-        await profile.setup(self, self.mafia_profile_service)
-        logger.info("✓ Mafia profile command loaded")
 
         # Load party management commands
         await add.setup(self, self.party_service)
