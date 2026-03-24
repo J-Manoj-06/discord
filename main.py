@@ -33,6 +33,7 @@ from services.profile_service import ProfileService
 from services.vote_effect_service import VoteEffectService
 from services.shop_service import ShopService
 from services.game_service import GameService
+from services.party_service import PartyService
 from services.mafia_profile_service import MafiaProfileService
 
 # Import command cogs
@@ -45,6 +46,14 @@ from bot.commands import (
     leave,
     start,
     profile,
+    add,
+    kick,
+    clearparty,
+    party,
+    players,
+    endgame,
+    roles,
+    action,
 )
 
 logger = logging.getLogger(__name__)
@@ -67,6 +76,7 @@ class MafiaBot(commands.Bot):
         self.vote_effect_service: Optional[VoteEffectService] = None
         self.shop_service: Optional[ShopService] = None
         self.game_service: Optional[GameService] = None
+        self.party_service: Optional[PartyService] = None
         self.mafia_profile_service: Optional[MafiaProfileService] = None
 
     async def setup_services(self):
@@ -98,6 +108,7 @@ class MafiaBot(commands.Bot):
         self.profile_service = ProfileService(self.profile_repo)
         self.vote_effect_service = VoteEffectService(self.inventory_repo)
         self.shop_service = ShopService(self.inventory_repo)
+        self.party_service = PartyService()
         self.mafia_profile_service = MafiaProfileService(self.mafia_game_stats_repo)
         self.game_service = GameService(self.mafia_profile_service)
 
@@ -134,18 +145,43 @@ class MafiaBot(commands.Bot):
         logger.info("✓ Vote effect commands loaded")
 
         # Load game flow commands
-        await join.setup(self, self.game_service)
+        await join.setup(self, self.party_service)
         logger.info("✓ Join command loaded")
 
         await leave.setup(self, self.game_service)
         logger.info("✓ Leave command loaded")
 
-        await start.setup(self, self.game_service)
+        await start.setup(self, self.game_service, self.party_service)
         logger.info("✓ Start command loaded")
 
         # Load Mafia game profile command
         await profile.setup(self, self.mafia_profile_service)
         logger.info("✓ Mafia profile command loaded")
+
+        # Load party management commands
+        await add.setup(self, self.party_service)
+        logger.info("✓ Add command loaded")
+
+        await kick.setup(self, self.party_service)
+        logger.info("✓ Kick command loaded")
+
+        await clearparty.setup(self, self.party_service)
+        logger.info("✓ Clearparty command loaded")
+
+        await party.setup(self, self.party_service)
+        logger.info("✓ Party command loaded")
+
+        await players.setup(self, self.game_service)
+        logger.info("✓ Players command loaded")
+
+        await roles.setup(self)
+        logger.info("✓ Roles command loaded")
+
+        await action.setup(self, self.game_service)
+        logger.info("✓ Action command loaded")
+
+        await endgame.setup(self, self.game_service, self.party_service)
+        logger.info("✓ Endgame command loaded")
 
     async def on_ready(self):
         """Called when the bot is ready."""
