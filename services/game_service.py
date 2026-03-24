@@ -46,6 +46,10 @@ class GameService:
         "doctor": "You are the Doctor 💉. You can save one player each night.",
         "detective": "You are the Detective 🔍. You can investigate players.",
         "villager": "You are a Villager 👤. Find and eliminate the mafia.",
+        "submissor": (
+            "You are the Submissor 🛐. You have no active ability. "
+            "First attack converts you to the attacker's side; second attack kills you."
+        ),
     }
 
     def __init__(self, profile_service: Optional["MafiaProfileService"] = None):
@@ -162,8 +166,79 @@ class GameService:
         session["night_reports"] = {}
         session["mode"] = mode
         session["mafia_role_names"] = self.mafia_role_names
+        session["neutral_role_names"] = self.role_manager.neutral_role_names()
+        session["village_role_names"] = self.role_manager.village_role_names()
+        session["submissor_state"] = {}
+
+        for user_id, role_name in roles.items():
+            if role_name == "submissor":
+                session["submissor_state"][user_id] = {
+                    "role": "submissor",
+                    "team": "neutral",
+                    "alive": True,
+                    "converted": False,
+                    "master": None,
+                    "first_attacker": None,
+                    "inherited": False,
+                }
 
         return True, "Roles assigned successfully.", roles
+
+    async def _handle_submissor_inheritance(
+        self,
+        guild: discord.Guild,
+        session: Dict,
+        newly_dead_ids: List[int],
+    ) -> None:
+        """Apply submissor inheritance when their master dies."""
+        if not newly_dead_ids:
+            return
+
+        submissor_state = session.get("submissor_state", {})
+        if not submissor_state:
+            return
+
+        dead_set = set(newly_dead_ids)
+        for submissor_id, state in submissor_state.items():
+            if not state.get("alive", True):
+                continue
+            if not state.get("converted", False):
+                continue
+            if state.get("inherited", False):
+                continue
+
+            master_id = state.get("master")
+            if master_id is None or master_id not in dead_set:
+                continue
+
+            inherited_role = session.get("roles", {}).get(master_id)
+            if not inherited_role:
+                continue
+
+            session["roles"][submissor_id] = inherited_role
+            try:
+                session.setdefault("role_objects", {})[submissor_id] = self.role_manager.create_role(inherited_role)
+            except ValueError as exc:
+                logger.error("Failed to create inherited role for submissor: %s", exc)
+                continue
+            state["inherited"] = True
+
+            if inherited_role in session.get("mafia_role_names", set()):
+                state["team"] = "mafia"
+            elif inherited_role in session.get("village_role_names", set()):
+                state["team"] = "town"
+            else:
+                state["team"] = "neutral"
+
+            member = guild.get_member(submissor_id)
+            if member:
+                try:
+                    await member.send(
+                        "Your master has died. You have inherited their role:\n"
+                        f"**{inherited_role.title()}**"
+                    )
+                except (discord.Forbidden, discord.HTTPException):
+                    pass
 
     async def send_roles_dm(self, guild: discord.Guild, roles: Dict[int, str]) -> List[int]:
         async def _dm_one(user_id: int, role_name: str) -> Tuple[int, bool]:
@@ -521,6 +596,43 @@ class GameService:
         killed_user_ids: List[int] = resolution.get("killed", [])
         investigations = resolution.get("investigations", {})
         exact_roles = resolution.get("exact_role_results", {})
+        submissor_events = resolution.get("submissor_events", [])
+
+        # DM conversion notifications for submissor intercept events.
+        for event in submissor_events:
+            if event.get("type") != "converted":
+                continue
+
+            submissor_id = event.get("submissor")
+            attacker_id = event.get("attacker")
+            attacker_name = get_player_display_name(guild, attacker_id)
+
+            submissor_member = guild.get_member(submissor_id)
+            if submissor_member:
+                try:
+                    await submissor_member.send(
+                        "You were attacked but begged for mercy.\n"
+                        f"You have joined **{attacker_name}'s side**."
+                    )
+                except (discord.Forbidden, discord.HTTPException):
+                    pass
+
+            attacker_member = guild.get_member(attacker_id)
+            if attacker_member:
+                try:
+                    await attacker_member.send(
+                        "The player you attacked has **submitted to you** and joined your side."
+                    )
+                except (discord.Forbidden, discord.HTTPException):
+                    pass
+
+        # Keep submissor alive state in sync for inheritance safety checks.
+        for dead_id in killed_user_ids:
+            sub_state = session.get("submissor_state", {}).get(dead_id)
+            if sub_state is not None:
+                sub_state["alive"] = False
+
+        await self._handle_submissor_inheritance(guild, session, killed_user_ids)
 
         if not killed_user_ids:
             await channel.send("🌙 **Night Result**\n\nNobody died during the night.")
@@ -617,6 +729,12 @@ class GameService:
         if eliminated_id in session["alive_players"]:
             session["alive_players"].remove(eliminated_id)
 
+        eliminated_sub_state = session.get("submissor_state", {}).get(eliminated_id)
+        if eliminated_sub_state is not None:
+            eliminated_sub_state["alive"] = False
+
+        await self._handle_submissor_inheritance(guild, session, [eliminated_id])
+
         eliminated_name = get_player_display_name(guild, eliminated_id)
         eliminated_role = session["roles"].get(eliminated_id, "unknown")
         vote_count = counts[eliminated_id]
@@ -652,6 +770,16 @@ class GameService:
 
         for player_id in session["alive_players"]:
             role = session["roles"].get(player_id)
+
+            # Converted submissor aligns with joined faction for win checks.
+            if role == "submissor":
+                sub_state = session.get("submissor_state", {}).get(player_id, {})
+                if sub_state.get("team") == "mafia":
+                    mafia_alive.append(player_id)
+                else:
+                    villagers_alive.append(player_id)
+                continue
+
             if role in self.mafia_role_names:
                 mafia_alive.append(player_id)
             else:

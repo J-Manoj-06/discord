@@ -2,6 +2,7 @@
 
 from .base_role import MAFIA, NEUTRAL, PRIORITY, SPECIAL, VILLAGE, Role
 from .role_manager import GAME_MODES, RoleManager
+from .submissor import Submissor
 
 __all__ = [
     "Role",
@@ -12,4 +13,5 @@ __all__ = [
     "MAFIA",
     "NEUTRAL",
     "SPECIAL",
+    "Submissor",
 ]

@@ -39,6 +39,18 @@ class ResolutionState:
         self.silenced_players: set[int] = set(game.get("silenced_players", []))
         self.messages: List[str] = []
         self.death_causes: Dict[int, str] = {}
+        self.submissor_events: List[Dict[str, Any]] = []
+
+
+def _team_from_attacker_role(game: Dict[str, Any], attacker_role: str) -> str:
+    """Map attacker role to team label used by submissor conversion state."""
+    if attacker_role in game.get("mafia_role_names", set()):
+        return "mafia"
+    if attacker_role in game.get("village_role_names", set()):
+        return "town"
+    if attacker_role in game.get("neutral_role_names", set()):
+        return "neutral"
+    return "neutral"
 
 
 def _safe_target(action: Action, state: ResolutionState) -> bool:
@@ -129,6 +141,41 @@ def execute_action(action: Action, state: ResolutionState) -> None:
         if target is None or target not in state.alive:
             return
 
+        target_role = state.game.get("roles", {}).get(target)
+        if target_role == "submissor":
+            submissor_state = state.game.setdefault("submissor_state", {}).setdefault(
+                target,
+                {
+                    "role": "submissor",
+                    "team": "neutral",
+                    "alive": True,
+                    "converted": False,
+                    "master": None,
+                    "first_attacker": None,
+                    "inherited": False,
+                },
+            )
+
+            if not submissor_state.get("converted", False):
+                attacker_role = state.game.get("roles", {}).get(action.actor, action.role_name)
+                submissor_state["converted"] = True
+                submissor_state["first_attacker"] = action.actor
+                submissor_state["master"] = action.actor
+                submissor_state["team"] = _team_from_attacker_role(
+                    state.game,
+                    attacker_role or "",
+                )
+                state.submissor_events.append(
+                    {
+                        "type": "converted",
+                        "submissor": target,
+                        "attacker": action.actor,
+                        "team": submissor_state["team"],
+                    }
+                )
+                # First attack is intercepted and does not kill.
+                return
+
         if target in state.protected:
             return
 
@@ -142,6 +189,10 @@ def execute_action(action: Action, state: ResolutionState) -> None:
         if target not in state.killed:
             state.killed.append(target)
             state.death_causes[target] = action.role_name or action.action_type
+
+            if target_role == "submissor":
+                sub_state = state.game.setdefault("submissor_state", {}).setdefault(target, {})
+                sub_state["alive"] = False
         return
 
     if action.action_type == "delayed_kill_queue":
@@ -229,4 +280,5 @@ def resolve_actions(actions: List[Action], game: Dict[str, Any]) -> Dict[str, An
         "silenced": list(state.silenced_players),
         "messages": state.messages,
         "death_causes": state.death_causes,
+        "submissor_events": state.submissor_events,
     }

@@ -6,6 +6,14 @@ from typing import Optional, Tuple
 class RoleEngine:
     """Centralized role action rules used by night action handlers."""
 
+    ROLE_TEAM = {
+        "godfather": "mafia",
+        "doctor": "town",
+        "detective": "town",
+        "villager": "town",
+        "submissor": "neutral",
+    }
+
     ACTION_MAP = {
         "godfather": "kill",
         "doctor": "heal",
@@ -18,6 +26,13 @@ class RoleEngine:
         if not role:
             return None
         return cls.ACTION_MAP.get(role.lower())
+
+    @classmethod
+    def get_role_team(cls, role: Optional[str]) -> str:
+        """Return baseline team label for a role name."""
+        if not role:
+            return "neutral"
+        return cls.ROLE_TEAM.get(role.lower(), "neutral")
 
     @classmethod
     def has_night_action(cls, role: Optional[str]) -> bool:

@@ -38,6 +38,14 @@ class RolesCog(commands.Cog):
             value="No night ability. Must vote during the day.",
             inline=False,
         )
+        embed.add_field(
+            name="🛐 Submissor (Neutral Role)",
+            value=(
+                "You have no abilities. The first player who attacks you converts "
+                "you to their side. If they die, you inherit their role."
+            ),
+            inline=False,
+        )
 
         await ctx.send(embed=embed)
 

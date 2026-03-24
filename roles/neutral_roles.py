@@ -6,6 +6,15 @@ from services.action_resolver import Action
 
 from .base_role import NEUTRAL, PRIORITY, Role
 
+NEUTRAL_ROLE_NAMES = {
+    "jester",
+    "serialkiller",
+    "executioner",
+    "arsonist",
+    "vampire",
+    "submissor",
+}
+
 
 class Jester(Role):
     """Wins by being voted out; no standard night action."""

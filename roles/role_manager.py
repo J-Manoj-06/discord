@@ -9,6 +9,7 @@ from .base_role import MAFIA, NEUTRAL, SPECIAL, VILLAGE, Role
 from .mafia_roles import Assassin, Consigliere, Disguiser, Framer, Godfather, Mafia, Poisoner, Silencer
 from .neutral_roles import Arsonist, Executioner, Jester, SerialKiller, Vampire
 from .special_roles import Gambler, Magnet, Shapeshifter, TimeTraveler, Trickster
+from .submissor import Submissor
 from .village_roles import Bodyguard, Detective, Doctor, GuardianAngel, Lookout, Mayor, Medium, Sheriff, Spy, Tracker, Villager
 
 
@@ -52,6 +53,7 @@ class RoleManager:
             "executioner": Executioner,
             "arsonist": Arsonist,
             "vampire": Vampire,
+            "submissor": Submissor,
             "timetraveler": TimeTraveler,
             "gambler": Gambler,
             "shapeshifter": Shapeshifter,
@@ -72,6 +74,20 @@ class RoleManager:
         names = set()
         for role_name in self.roles:
             if self.role_team(role_name) == MAFIA:
+                names.add(role_name)
+        return names
+
+    def neutral_role_names(self) -> set[str]:
+        names = set()
+        for role_name in self.roles:
+            if self.role_team(role_name) == NEUTRAL:
+                names.add(role_name)
+        return names
+
+    def village_role_names(self) -> set[str]:
+        names = set()
+        for role_name in self.roles:
+            if self.role_team(role_name) == VILLAGE:
                 names.add(role_name)
         return names
 
